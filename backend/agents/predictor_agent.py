@@ -1,5 +1,5 @@
-from backend.agents.base_agent import BaseAgent
-from backend.database.tigergraph_client import TigerGraphClient
+from agents.base_agent import BaseAgent
+from database.tigergraph_client import TigerGraphClient
 
 class PredictorAgent(BaseAgent):
     def __init__(self):
@@ -71,7 +71,7 @@ class PredictorAgent(BaseAgent):
         
         return f"""
 You are an elite red-team operator and threat intelligence expert at a major bank. Your job is to predict how an attacker would compromise a specific asset and what they would do next. Your analysis must be SPECIFIC, ACTIONABLE, and BASED ON THE DATA PROVIDED.
-
+DO NOT include any thinking, reasoning, or explanations. DO NOT use <think> tags. OUTPUT ONLY the playbook and the response needed.
 ## ASSET UNDER ANALYSIS
 - **Name:** {asset.get('name')}
 - **Type:** {asset.get('asset_type')}

@@ -1,5 +1,5 @@
-from backend.agents.base_agent import BaseAgent
-from backend.database.tigergraph_client import TigerGraphClient
+from agents.base_agent import BaseAgent
+from database.tigergraph_client import TigerGraphClient
 
 class PathfinderAgent(BaseAgent):
     def __init__(self):
@@ -94,6 +94,7 @@ class PathfinderAgent(BaseAgent):
         
         return f"""
 You are a senior cybersecurity architect at a major bank. Your job is to analyze attack paths and explain them to security analysts in a way that drives immediate action.
+DO NOT include any thinking, reasoning, or explanations. DO NOT use <think> tags. OUTPUT ONLY the playbook and the response needed.
 
 ## THE ATTACK PATH DISCOVERED
 The following path was found from the TigerGraph database:

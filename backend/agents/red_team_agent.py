@@ -1,7 +1,7 @@
 import random
 from collections import Counter, defaultdict
-from backend.agents.base_agent import BaseAgent
-from backend.database.tigergraph_client import TigerGraphClient
+from agents.base_agent import BaseAgent
+from database.tigergraph_client import TigerGraphClient
 
 
 class RedTeamAgent(BaseAgent):
@@ -252,6 +252,7 @@ This could mean:
 
         return f"""
 You are a red team operator and security analyst. Analyze these simulation results.
+DO NOT include any thinking, reasoning, or explanations. DO NOT use <think> tags. OUTPUT ONLY the playbook and the response needed.
 
 ## SIMULATION CONFIGURATION
 - Start Asset: {start}
