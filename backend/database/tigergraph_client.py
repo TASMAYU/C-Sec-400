@@ -145,3 +145,52 @@ class TigerGraphClient:
             {"name": "prod-web-01", "ip": "172.16.1.10", "cve_id": "CVE-2021-44228", "cvss_score": 10.0},
             {"name": "prod-api-01", "ip": "172.16.2.10", "cve_id": "CVE-2022-22965", "cvss_score": 9.8},
         ]
+    
+    # ========== SHORTEST PATH FOR PATHFINDER AGENT ==========
+    def shortest_path(self, start_asset_id: str, target_asset_id: str) -> List[str]:
+        """
+        Find the shortest path between two assets using BFS.
+        Returns list of asset IDs along the path.
+        """
+        try:
+            # Get all connections
+            connections = self.get_all_connections()
+            
+            # Build graph from connections
+            graph = {}
+            for conn in connections:
+                from_id = conn.get("from_asset_id")
+                to_id = conn.get("to_asset_id")
+                if from_id and to_id:
+                    graph.setdefault(from_id, []).append(to_id)
+            
+            # If start asset has no connections, return empty
+            if start_asset_id not in graph:
+                print(f"No outgoing connections from {start_asset_id}")
+                return []
+            
+            # BFS to find shortest path
+            visited = set()
+            queue = [(start_asset_id, [start_asset_id])]
+            
+            while queue:
+                current, path = queue.pop(0)
+                
+                if current == target_asset_id:
+                    return path
+                
+                if current in visited:
+                    continue
+                visited.add(current)
+                
+                for neighbor in graph.get(current, []):
+                    if neighbor not in visited:
+                        queue.append((neighbor, path + [neighbor]))
+            
+            # No path found
+            print(f"No path found from {start_asset_id} to {target_asset_id}")
+            return []
+            
+        except Exception as e:
+            print(f"[TG] shortest_path error: {e}")
+            return []

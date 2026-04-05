@@ -31,7 +31,7 @@ class RCAAgent(BaseAgent):
         # Calculate severity
         severity = self._calculate_incident_severity(incident, vulnerabilities)
 
-        prompt = self._build_prompt(
+        prompt = self._build_clean_prompt(
             incident, asset_info, vulnerabilities, threat_actors, connections, severity
         )
 
@@ -51,124 +51,95 @@ class RCAAgent(BaseAgent):
             "root_cause_analysis": report
         }
 
-    def _build_prompt(self, incident, asset_info, vulnerabilities, threat_actors, connections, severity):
-        """Build production-grade RCA prompt"""
-
+    def _build_clean_prompt(self, incident, asset_info, vulnerabilities, threat_actors, connections, severity):
+        """Build clean RCA prompt - no markdown, no emojis, plain text"""
+        
         # Format vulnerabilities
-        vuln_text = "None found"
         if vulnerabilities:
             vuln_list = []
             for v in vulnerabilities:
-                patched = "✅ Patched" if v.get("is_patched") else "❌ UNPATCHED"
-                vuln_list.append(
-                    f"- **{v.get('cve_id')}**: CVSS {v.get('cvss_score')} - {v.get('name')} [{patched}]"
-                )
+                status = "UNPATCHED" if not v.get("is_patched") else "PATCHED"
+                vuln_list.append(f"  - {v.get('cve_id')}: CVSS {v.get('cvss_score')} - {v.get('name')} [{status}]")
             vuln_text = "\n".join(vuln_list)
+        else:
+            vuln_text = "  No vulnerabilities found on this asset"
 
         # Format threat actors
-        threat_text = "No known threat actors target this asset type"
         if threat_actors:
             threat_list = []
             for ta in threat_actors:
-                threat_list.append(
-                    f"- **{ta.get('name')}**: {ta.get('motivation')} (Tools: {ta.get('known_tools', 'Unknown')})"
-                )
+                threat_list.append(f"  - {ta.get('name')}: {ta.get('motivation')} (Tools: {ta.get('known_tools', 'Unknown')})")
             threat_text = "\n".join(threat_list)
+        else:
+            threat_text = "  No known threat actors target this asset type"
 
         # Format connections
-        conn_text = "No connection data available"
         if connections:
             conn_list = []
             for conn in connections[:5]:
-                conn_list.append(f"- {conn.get('connected_asset')} (port {conn.get('port')})")
+                conn_list.append(f"  - {conn.get('connected_asset')} (port {conn.get('port')})")
             conn_text = "\n".join(conn_list)
+        else:
+            conn_text = "  No connection data available"
 
-        return f"""
-You are a senior forensic investigator and incident responder at a major bank. Write a Root Cause Analysis (RCA) report.
-DO NOT include any thinking, reasoning, or explanations. DO NOT use <think> tags. OUTPUT ONLY the playbook and the response needed.
+        # Asset criticality
+        asset_critical = "Yes - This is a CRITICAL asset" if asset_info and asset_info.get('is_critical') else "No"
 
-## INCIDENT DETAILS
+        return f"""You are a senior forensic investigator. Write a Root Cause Analysis report.
 
-| Field | Value |
-|-------|-------|
-| **Incident ID** | {incident.get('incident_id')} |
-| **Timestamp** | {incident.get('timestamp')} |
-| **Attack Type** | {incident.get('attack_type')} |
-| **Description** | {incident.get('description')} |
-| **Severity** | {severity['level']} (Score: {severity['score']}/100) |
+DO NOT use markdown. DO NOT use emojis. DO NOT use bold or italics. Use plain text only.
+Produce ONLY the report. Do NOT include any thinking, reasoning, or explanations. Do NOT use think tags. Do NOT start with phrases like "Okay, let's start". Start directly with the report content.
+like directly with the SUMMARY part 
 
-## AFFECTED ASSET
+Use these exact section headers:
 
-| Field | Value |
-|-------|-------|
-| **Name** | {asset_info.get('name') if asset_info else 'Unknown'} |
-| **IP** | {asset_info.get('ip') if asset_info else 'Unknown'} |
-| **Type** | {asset_info.get('asset_type') if asset_info else 'Unknown'} |
-| **OS** | {asset_info.get('os') if asset_info else 'Unknown'} |
-| **Critical** | {'Yes' if asset_info and asset_info.get('is_critical') else 'No'} |
+SUMMARY OF THE SECURITY BREACH
 
-## VULNERABILITIES ON AFFECTED ASSET
+TIMELINE OF EVENTS
+
+TECHNICAL ROOT CAUSE
+
+IMPACT ASSESSMENT
+
+RECOMMENDED FIXES
+
+Now use this data:
+
+Incident ID: {incident.get('incident_id')}
+Timestamp: {incident.get('timestamp')}
+Attack Type: {incident.get('attack_type')}
+Description: {incident.get('description')}
+Severity: {severity['level']} (Score: {severity['score']}/100)
+
+Affected Asset:
+- Name: {asset_info.get('name') if asset_info else 'Unknown'}
+- IP: {asset_info.get('ip') if asset_info else 'Unknown'}
+- Type: {asset_info.get('asset_type') if asset_info else 'Unknown'}
+- OS: {asset_info.get('os') if asset_info else 'Unknown'}
+- Critical: {asset_critical}
+
+Vulnerabilities on affected asset:
 {vuln_text}
 
-## THREAT ACTORS TARGETING THIS ASSET TYPE
+Threat actors targeting this asset type:
 {threat_text}
 
-## NETWORK CONNECTIONS (Limited view)
+Network connections:
 {conn_text}
 
-## INSTRUCTIONS
+Write a DETAILED long RCA report. Each section must have 3-5 sentences. Be specific using the data above. If data is missing, state "No data available" instead of inventing.
 
-Write a professional RCA report with EXACTLY these 5 sections. Use the section headers as shown.
+SUMMARY OF THE SECURITY BREACH: Explain what happened in plain English, the root cause in one sentence, and whether customer data was affected.
 
-### 1. EXECUTIVE SUMMARY
+TIMELINE OF EVENTS: Create a numbered list with estimated times for initial compromise, detection, containment, and eradication.
 
-Write 2-3 sentences for management:
-- What happened in plain English
-- The root cause in one sentence
-- Whether customer data was affected
+TECHNICAL ROOT CAUSE: Explain which vulnerability or misconfiguration was exploited, why it wasn't patched, and what security control failed.
 
-### 2. TIMELINE OF EVENTS
+IMPACT ASSESSMENT: Describe what data was accessed or exposed, what systems were affected, business impact, and whether customers were affected.
 
-Create a numbered timeline of key events:
-1. Initial compromise (how and when)
-2. Detection (how the incident was found)
-3. Containment (when it was stopped)
-4. Eradication (when root cause was removed)
+RECOMMENDED FIXES: List immediate fixes with specific commands, long-term improvements, and how to verify each fix worked.
 
-### 3. TECHNICAL ROOT CAUSE
-
-Answer these questions:
-- Which vulnerability or misconfiguration was exploited?
-- Was this a known issue? If yes, why wasn't it patched?
-- What security control failed?
-- Provide evidence from the data above
-
-### 4. IMPACT ASSESSMENT
-
-Answer these questions:
-- What data was accessed or exposed?
-- What systems were affected?
-- Business impact (operational, financial, reputational)
-- Were customers affected?
-
-### 5. RECOMMENDED FIXES
-
-Provide SPECIFIC, ACTIONABLE fixes:
-- Immediate fixes (patch commands, config changes)
-- Long-term improvements (process changes, additional controls)
-- How to verify each fix worked
-
-## CRITICAL RULES
-
-1. **NO hallucinations.** Only use the data provided above.
-2. **NO placeholders.** If data is missing, state "No data available".
-3. **Be specific.** Use actual CVE IDs, asset names, and timestamps from the data.
-4. **No technical jargon without explanation.**
-5. **Return ONLY markdown.** No text before or after the 5 sections.
-6. **Keep executive summary short.** Management will read this first.
-
-Now generate the RCA report:
-"""
+Now write the report in a long and detailed way:"""
 
     def _calculate_incident_severity(self, incident, vulnerabilities):
         """Calculate incident severity score"""
@@ -219,16 +190,19 @@ Now generate the RCA report:
         
         for line in lines:
             line_lower = line.lower()
-            # Look for sentences that indicate root cause
-            if 'root cause' in line_lower or 'because' in line_lower or 'due to' in line_lower:
+            # Look for sentences that indicate root cause or key findings
+            if any(keyword in line_lower for keyword in ['root cause', 'vulnerability', 'exploited', 'failed', 'unpatched']):
                 clean_line = line.strip()
-                # Remove markdown formatting
-                clean_line = clean_line.replace('**', '').replace('###', '').strip()
-                if clean_line and len(clean_line) < 200:
+                if clean_line and len(clean_line) < 200 and len(clean_line) > 20:
                     findings.append(clean_line)
         
         # If no findings extracted, provide default
         if not findings:
             findings = ["Review the full RCA report for detailed findings"]
         
-        return findings[:3]
+        return findings[:4]
+
+
+
+
+

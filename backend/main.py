@@ -1,7 +1,5 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
-# Use relative imports (no 'backend.' prefix)
 from api.routes import router
 
 app = FastAPI(
@@ -10,7 +8,6 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Enable CORS for frontend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

@@ -1,6 +1,7 @@
 from agents.base_agent import BaseAgent
 from database.tigergraph_client import TigerGraphClient
 
+
 class PathfinderAgent(BaseAgent):
     def __init__(self):
         super().__init__()
@@ -25,13 +26,13 @@ class PathfinderAgent(BaseAgent):
         for aid in path_ids:
             asset = self.tg.get_asset_by_id(aid)
             if asset:
-                # Add is_critical to asset details
                 asset['is_critical'] = asset.get('is_critical', False)
                 path_details.append({
                     "asset_id": aid,
                     "name": asset.get("name"),
                     "type": asset.get("asset_type"),
                     "ip": asset.get("ip"),
+                    "os": asset.get("os"),
                     "is_critical": asset.get("is_critical")
                 })
         
@@ -45,7 +46,8 @@ class PathfinderAgent(BaseAgent):
                         "asset_id": aid,
                         "cve": v.get("cve_id"),
                         "name": v.get("name"),
-                        "cvss": v.get("cvss_score")
+                        "cvss": v.get("cvss_score"),
+                        "description": v.get("description", "No description available")
                     })
         
         # Check if target is critical
@@ -62,10 +64,12 @@ class PathfinderAgent(BaseAgent):
             len(path_details)
         )
         
-        # Generate LLM explanation with enhanced prompt
-        prompt = self._build_enhanced_prompt(
+        # Generate LLM explanation with clean prompt
+        prompt = self._build_clean_prompt(
             path_details, 
-            vulnerabilities_on_path
+            vulnerabilities_on_path,
+            start_asset_id,
+            target_asset_id
         )
         
         explanation = self._call_llm(prompt, temperature=0.3)
@@ -77,102 +81,108 @@ class PathfinderAgent(BaseAgent):
             "explanation": explanation,
             "length": len(path_details),
             "risk_score": risk_score,
+            "risk_level": self._get_risk_level(risk_score),
             "target_is_critical": target_critical
         }
     
-    def _build_enhanced_prompt(self, path_details, vulnerabilities_on_path):
-        """Build the enhanced prompt for LLM"""
+    def _build_clean_prompt(self, path_details, vulnerabilities_on_path, start_id, target_id):
+        """Build clean prompt - no markdown, no emojis, plain text"""
         
         # Format the path string
-        path_str = ' → '.join([f"{a['name']} ({a['type']})" for a in path_details])
+        path_str = " -> ".join([f"{a['name']} ({a['type']})" for a in path_details])
+        
+        # Format asset details
+        asset_details = []
+        for a in path_details:
+            critical_flag = "YES - CRITICAL ASSET" if a.get('is_critical') else "No"
+            asset_details.append(f"  - {a['name']} | Type: {a['type']} | IP: {a['ip']} | OS: {a['os']} | Critical: {critical_flag}")
+        assets_text = "\n".join(asset_details)
         
         # Format vulnerabilities
-        vulns_str = self._format_vulnerabilities(vulnerabilities_on_path, path_details)
+        if vulnerabilities_on_path:
+            vuln_details = []
+            for v in vulnerabilities_on_path:
+                asset_name = next((a['name'] for a in path_details if a['asset_id'] == v['asset_id']), v['asset_id'])
+                vuln_details.append(f"  - {v['cve']} on {asset_name}: CVSS {v['cvss']} - {v['name']}")
+                vuln_details.append(f"    Description: {v['description'][:150]}")
+            vulns_text = "\n".join(vuln_details)
+        else:
+            vulns_text = "  No unpatched vulnerabilities found on this path."
         
-        # Format criticality
-        criticality_str = self._format_criticality(path_details)
-        
-        return f"""
-You are a senior cybersecurity architect at a major bank. Your job is to analyze attack paths and explain them to security analysts in a way that drives immediate action.
-DO NOT include any thinking, reasoning, or explanations. DO NOT use <think> tags. OUTPUT ONLY the playbook and the response needed.
+        return f"""You are a senior cybersecurity architect. Analyze this attack path and provide a detailed security alert.
 
-## THE ATTACK PATH DISCOVERED
-The following path was found from the TigerGraph database:
+ATTACK PATH FOUND
+Path: {path_str}
+Path length: {len(path_details)} hops
 
-{path_str}
+ASSET DETAILS
+{assets_text}
 
-## VULNERABILITIES ALONG THE PATH
-{vulns_str}
+VULNERABILITIES ALONG PATH
+{vulns_text}
 
-## ASSET CRITICALITY
-{criticality_str}
+Write a security alert with these 6 sections. Use plain text. No markdown. No emojis. No bold.
 
-## YOUR TASK
-Write a **security alert** for the SOC (Security Operations Center) team. Follow this exact structure:
+EXECUTIVE SUMMARY
+Write 2-3 sentences explaining:
+- The risk level
+- The core problem
+- Whether this path leads to critical assets
 
-### 🔴 EXECUTIVE SUMMARY (1 sentence)
-State the risk level and the core problem.
+ATTACK PATH EXPLANATION
+Write a step-by-step explanation:
+- Step 1: How attacker enters the first asset
+- Step 2: How they move to next asset
+- Continue for each step in the path
+- Final step: What they can do at the target
 
-### 🗺️ ATTACKER MINDSET (2-3 sentences)
-Explain step-by-step how an attacker would think while traversing this path. Use phrases like "First, the attacker would..." and "Then, they would pivot to..."
+VULNERABILITIES EXPLAINED
+For each vulnerability found:
+- Which CVE and on which asset
+- Why it is dangerous in this specific path
+- How an attacker would exploit it
 
-### ⚠️ CRITICAL VULNERABILITIES (bullet points)
-List each unpatched vulnerability and EXPLAIN why it's dangerous in this specific context.
+POTENTIAL IMPACT
+List specific impacts:
+- Data at risk: (specific types like customer PII, transaction records, credentials)
+- Systems affected: (names of critical assets)
+- Business consequences: (financial, operational, reputational)
 
-### 💥 POTENTIAL IMPACT (2-3 sentences)
-What data or systems would be compromised? Be specific (e.g., "customer PII", "transaction signing keys", "SWIFT credentials").
+RECOMMENDATIONS FOR THIS
+Numbered list of specific actions:
+1. Highest priority patch or action
+2. Network changes needed
+3. Monitoring to enable
+4. Long-term hardening
 
-### 🛡️ IMMEDIATE RECOMMENDATIONS (numbered list)
-Give 3-5 specific, actionable steps. Include:
-- Which vulnerability to patch FIRST
-- What network rules to add
-- What monitoring to enable
+RISK ASSESSMENT
+- Overall risk level: (Critical/High/Medium/Low)
+- Why this risk level
+- Recommended timeline for remediation
 
-## STYLE GUIDELINES
-- Use professional but urgent tone (like a real security alert)
-- Assume the analyst has 5 minutes to read and act
-- No markdown except for the headers and lists
-- Keep total response under 400 words
-- Be SPECIFIC using the actual asset and vulnerability names provided
+RULES:
+- Be specific - use actual asset names and CVE IDs
+- No markdown formatting
+- No emojis or special characters
+- Keep professional tone
+- Total response 400-600 words
 
-Now write the security alert.
-"""
+Now write the security alert:"""
     
-    def _format_vulnerabilities(self, vulns, path_details):
-        """Format vulnerabilities with asset context"""
-        if not vulns:
-            return "✅ No unpatched vulnerabilities found along this path."
-        
-        # Group vulnerabilities by asset
-        vulns_by_asset = {}
-        for v in vulns:
-            asset_id = v.get("asset_id")
-            vulns_by_asset.setdefault(asset_id, []).append(v)
-        
-        formatted = []
-        for aid, asset_vulns in vulns_by_asset.items():
-            asset_name = next((a['name'] for a in path_details if a['asset_id'] == aid), aid)
-            formatted.append(f"\n📌 {asset_name}:")
-            for v in asset_vulns:
-                cvss = v.get("cvss", 0)
-                if cvss >= 9.0:
-                    severity = "🔴 CRITICAL"
-                elif cvss >= 7.0:
-                    severity = "🟠 HIGH"
-                else:
-                    severity = "🟡 MEDIUM"
-                formatted.append(f"   - {severity} {v.get('cve')} (CVSS {cvss})")
-        
-        return "\n".join(formatted)
+    def _get_risk_level(self, score: int) -> str:
+        """Convert numeric score to risk level"""
+        if score >= 80:
+            return "CRITICAL"
+        elif score >= 60:
+            return "HIGH"
+        elif score >= 40:
+            return "MEDIUM"
+        elif score >= 20:
+            return "LOW"
+        else:
+            return "NEGLIGIBLE"
     
-    def _format_criticality(self, path_details):
-        """Highlight critical assets in the path"""
-        critical_assets = [a['name'] for a in path_details if a.get('is_critical')]
-        if critical_assets:
-            return f"⚠️ CRITICAL ASSETS IN PATH: {', '.join(critical_assets)}"
-        return "No critical assets in this path."
-    
-    def _calculate_risk_score(self, vulns, target_critical, path_length):
+    def _calculate_risk_score(self, vulns, target_critical, path_length) -> int:
         """Calculate numeric risk score (0-100)"""
         score = 0
         
@@ -186,7 +196,6 @@ Now write the security alert.
             score += 20
         
         # Path length penalty (shorter = more dangerous, max 20 points)
-        # Score = 20 - (length * 4), minimum 0
         path_risk = max(0, 20 - (path_length * 4))
         score += path_risk
         

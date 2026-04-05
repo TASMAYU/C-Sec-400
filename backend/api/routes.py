@@ -7,6 +7,7 @@ from agents.remediator_agent import RemediatorAgent
 from agents.rca_agent import RCAAgent
 from agents.red_team_agent import RedTeamAgent
 from database.tigergraph_client import TigerGraphClient
+
 router = APIRouter(prefix="/api", tags=["Cyber Defence"])
 
 # Initialize agents and client
@@ -17,16 +18,31 @@ rca = RCAAgent()
 redteam = RedTeamAgent()
 tg = TigerGraphClient()
 
-# Request/Response models
+
+# ========== REQUEST MODELS ==========
+
+class PathRequest(BaseModel):
+    start_asset_id: str
+    target_asset_id: str
+
+class PredictRequest(BaseModel):
+    asset_id: str
+
+class RemediateRequest(BaseModel):
+    asset_id: str
+    incident_context: Optional[str] = None
+
+class RCARequest(BaseModel):
+    incident_id: str
+
 class SimulateRequest(BaseModel):
     start_asset_id: str
     target_asset_id: str
     iterations: Optional[int] = 100
 
-class PredictRequest(BaseModel):
-    asset_id: str
 
-# ========== ASSETS ==========
+# ========== ASSETS (GET - simple fetch) ==========
+
 @router.get("/assets")
 async def get_all_assets():
     return tg.get_all_assets()
@@ -42,39 +58,67 @@ async def get_asset(asset_id: str):
 async def get_asset_vulns(asset_id: str):
     return tg.get_asset_vulnerabilities(asset_id)
 
-# ========== PATHFINDING ==========
-@router.get("/paths")
-async def find_paths(start: str, target: str):
-    return pathfinder.find_paths(start, target)
 
-# ========== PREDICTION & REMEDIATION ==========
-@router.post("/predict")
+# ========== PATHFINDER AGENT (POST) ==========
+
+@router.post("/pathfinder")
+async def find_paths(request: PathRequest):
+    """Find attack paths between two assets"""
+    return pathfinder.find_paths(request.start_asset_id, request.target_asset_id)
+
+
+# ========== PREDICTOR AGENT (POST) ==========
+
+@router.post("/predictor")
 async def predict_attack(request: PredictRequest):
+    """Predict how an attacker could compromise an asset"""
     return predictor.predict_attack(request.asset_id)
 
-@router.post("/remediate")
-async def generate_playbook(request: PredictRequest):
-    return remediator.generate_playbook(request.asset_id)
 
-# ========== INCIDENTS & RCA ==========
-@router.get("/incidents")
-async def get_all_incidents():
-    return tg.get_all_incidents()
+# ========== REMEDIATOR AGENT (POST) ==========
 
-@router.get("/incidents/{incident_id}/rca")
-async def get_rca(incident_id: str):
-    return rca.generate_rca(incident_id)
+@router.post("/remediator")
+async def generate_playbook(request: RemediateRequest):
+    """Generate remediation commands for a vulnerable asset"""
+    return remediator.generate_playbook(request.asset_id, request.incident_context)
 
-# ========== RED TEAM SIMULATION ==========
-@router.post("/simulate")
+
+# ========== RCA AGENT (POST) ==========
+
+@router.post("/rca")
+async def get_rca(request: RCARequest):
+    """Generate Root Cause Analysis report for an incident"""
+    return rca.generate_rca(request.incident_id)
+
+
+# ========== RED TEAM AGENT (POST) ==========
+
+@router.post("/redteam")
 async def run_simulation(request: SimulateRequest):
+    """Run red team attack simulation"""
     return redteam.run_simulation(
         request.start_asset_id,
         request.target_asset_id,
         request.iterations
     )
 
-# ========== CRITICAL RISKS ==========
+
+# ========== INCIDENTS (GET - simple fetch) ==========
+
+@router.get("/incidents")
+async def get_all_incidents():
+    return tg.get_all_incidents()
+
+@router.get("/incidents/{incident_id}")
+async def get_incident(incident_id: str):
+    incident = tg.get_incident_by_id(incident_id)
+    if not incident:
+        raise HTTPException(404, "Incident not found")
+    return incident
+
+
+# ========== CRITICAL RISKS (GET) ==========
+
 @router.get("/critical-risks")
 async def get_critical_risks():
     return tg.get_critical_risks()
